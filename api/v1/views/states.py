@@ -1,57 +1,78 @@
 #!/usr/bin/python3
-"""
-Flask route that returns json status response
-"""
+""" States RESTful API """
+
+from flask import jsonify, abort, request
 from api.v1.views import app_views
-from flask import abort, jsonify, make_response, request
-from flasgger import Swagger, swag_from
-from models import storage, CNC
+from models import storage
+from models.base_model import BaseModel
+from models.state import State
 
 
-@app_views.route('/states', methods=['GET', 'POST'])
-@swag_from('swagger_yaml/states_no_id.yml', methods=['GET', 'POST'])
-def states_no_id():
-    """
-        states route to handle http method for requested states no id provided
-    """
-    if request.method == 'GET':
-        all_states = storage.all('State')
-        all_states = list(obj.to_json() for obj in all_states.values())
-        return jsonify(all_states)
-
-    if request.method == 'POST':
-        req_json = request.get_json()
-        if req_json is None:
-            abort(400, 'Not a JSON')
-        if req_json.get("name") is None:
-            abort(400, 'Missing name')
-        State = CNC.get("State")
-        new_object = State(**req_json)
-        new_object.save()
-        return jsonify(new_object.to_json()), 201
+@app_views.route('/states', methods=['GET'], strict_slashes=False)
+def all_states():
+    """ Uses to_dict to retrieve an object into a valid JSON """
+    all_states = storage.all("State")
+    list = []
+    for state in all_states.values():
+        list.append(state.to_dict())
+    return jsonify(list)
 
 
-@app_views.route('/states/<state_id>', methods=['GET', 'DELETE', 'PUT'])
-@swag_from('swagger_yaml/states_id.yml', methods=['PUT', 'GET', 'DELETE'])
-def states_with_id(state_id=None):
-    """
-        states route to handle http method for requested state by id
-    """
-    state_obj = storage.get('State', state_id)
-    if state_obj is None:
-        abort(404, 'Not found')
+@app_views.route('/states/<state_id>', methods=['GET'], strict_slashes=False)
+def individual_states(state_id):
+    """ Retrieves a State object, or returns a 404 if the state_id is not
+    linked to any object """
+    state = storage.get("State", state_id)
+    if state is None:
+        abort(404)
+    return jsonify(state.to_dict())
 
-    if request.method == 'GET':
-        return jsonify(state_obj.to_json())
 
-    if request.method == 'DELETE':
-        state_obj.delete()
-        del state_obj
-        return jsonify({})
+@app_views.route('/states/<state_id>', methods=['DELETE'],
+                 strict_slashes=False)
+def delete_state(state_id):
+    """ Deletes a State object, or returns a 404 if the state_id is not
+    linked to any object """
+    state = storage.get("State", state_id)
+    if state is None:
+        abort(404)
+    state.delete()
+    storage.save()
+    return jsonify({})
 
-    if request.method == 'PUT':
-        req_json = request.get_json()
-        if req_json is None:
-            abort(400, 'Not a JSON')
-        state_obj.bm_update(req_json)
-        return jsonify(state_obj.to_json())
+
+@app_views.route('/states', methods=['POST'], strict_slashes=False)
+def create_state():
+    """ Creates a State object, or returns a 400 if the HTTP body request is not
+    valid JSON, or if the dict doesnt contain the key name """
+    data = ""
+    data = request.get_json()
+    if data is None:
+        abort(400, "Not a JSON")
+    name = data.get("name")
+    if name is None:
+        abort(400, "Missing name")
+
+    new_state = State()
+    new_state.name = name
+    new_state.save()
+    return (jsonify(new_state.to_dict())), 201
+
+
+@app_views.route('/states/<state_id>', methods=['PUT'], strict_slashes=False)
+def update_state(state_id):
+    """ Updates a State object, or returns a 400 if the HTTP body is not valid
+    JSON, or a 404 if state_id is not linked to an object """
+    state = storage.get("State", state_id)
+    if state is None:
+        abort(404)
+    data = ""
+    data = request.get_json()
+    if data is None:
+        abort(400, "Not a JSON")
+
+    for k, v in data.items():
+        if k not in ['id', 'created_at', 'updated_at']:
+            setattr(state, k, v)
+    state.save()
+    return (jsonify(state.to_dict()))
